@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+platform_settings.json
+platform_settings.json.tmp
+gui_preview.png
