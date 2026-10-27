@@ -58,22 +58,35 @@ class GuiTests(unittest.TestCase):
             self.assertIsNotNone(find_item(window, "distanceY"))
             self.assertIsNone(find_item(window, "distanceZ"))
             self.assertFalse(find_item(window, "movePlatform").property("enabled"))
+            self.assertEqual(find_item(window, "connectionLed").property("color").name(), "#ed6262")
+            self.assertEqual(find_item(window, "boardAddress").property("value"), 1)
+            self.assertIsNotNone(find_item(window, "setHomeX"))
+            self.assertIsNotNone(find_item(window, "goHomeY"))
             self.assertEqual(find_item(window, "motionAcceleration").property("value"), 100)
             self.assertEqual(len(setup.axisRows), 2)
             setup.setMotorCount(3)
             QTest.qWait(50)
             self.assertIsNotNone(find_item(window, "distanceZ"))
+            self.assertIsNotNone(find_item(window, "goHomeZ"))
             setup.assign("X", 2)
             self.assertEqual(len({r["motor"] for r in setup.axisRows}), 3)
             setup.setMotorCount(2)
             setup.chooseBoard(0)
+            setup.setBoardAddress(6)
             setup.save()
             self.assertEqual(set(save.call_args.args[2]), {"x", "y"})
+            self.assertEqual(save.call_args.kwargs["address"], 6)
             QTest.qWait(150)
             image: QImage = engine.rootObjects()[0].grabWindow()
             self.assertFalse(image.isNull())
             image.save(str(root / "docs" / "gui_preview.png"))
             self.assertEqual(warnings, [])
+            setup._motion_update({"connected": True, "moving": False, "message": "Fake connection"})
+            QTest.qWait(50)
+            self.assertEqual(find_item(window, "connectionLed").property("color").name(), "#40d58b")
+            self.assertFalse(find_item(window, "boardAddress").property("enabled"))
+            setup.setBoardAddress(7)
+            self.assertEqual(setup.boardAddress, 6)
             engine.rootObjects()[0].close()
             del engine
 
@@ -129,6 +142,23 @@ class GuiTests(unittest.TestCase):
                 setup.shutdown()
             self.assertTrue(device.closed)
             self.assertFalse(setup._thread.isRunning())
+
+    # Home requests ignore distance input and absolute checkbox, and lock competing requests.
+    def test_home_requests(self) -> None:
+        with patch("src.platform_gui.discover_boards", return_value=[]):
+            setup: Setup = Setup(Path(__file__).with_name(".gui-smoke-unused.json"))
+        requests: list[tuple[str, WorkerRequest]] = []
+        setup.request.connect(lambda action, data: requests.append((action, data)))
+        setup._connected = True
+        setup.setMotionInput("X", "invalid", True)
+        setup.setHome("X")
+        self.assertEqual(requests, [("set_home", {"axis": "x"})])
+        setup.goHome("X", 200, 100, 20)
+        self.assertEqual(len(requests), 1)
+        setup._busy = False
+        setup.goHome("Y", 200, 100, 20)
+        self.assertEqual(requests[-1], ("go_home", {"axis": "y", "speed": 200,
+                                                   "acceleration": 100, "timeout": 20}))
 
 
 if __name__ == "__main__":

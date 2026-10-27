@@ -10,12 +10,12 @@ if __package__:
     from .platform_types import BoardInfo, ControllerFactory, MotorController, MotionRow, MotionState, WorkerRequest
     from .bs3ADTritanic import TMCL
     from .motor_platform import Platform
-    from .platform_config import discover_boards, resolve_board
+    from .platform_config import discover_boards, resolve_board, validate_address
 else:
     from platform_types import BoardInfo, ControllerFactory, MotorController, MotionRow, MotionState, WorkerRequest
     from bs3ADTritanic import TMCL
     from motor_platform import Platform
-    from platform_config import discover_boards, resolve_board
+    from platform_config import discover_boards, resolve_board, validate_address
 
 
 class MotionWorker(QObject):
@@ -50,7 +50,8 @@ class MotionWorker(QObject):
                 index: int = resolve_board(data["board"], boards)
                 if index < 0:
                     raise RuntimeError("Board not found unambiguously. Refresh and select it again.")
-                self.controller: MotorController | None = self.factory(boards[index]["port"], address=1)
+                address: int = validate_address(data.get("address", 1))
+                self.controller: MotorController | None = self.factory(boards[index]["port"], address=address)
                 self.platform: Platform | None = Platform(self.controller, data["axes"], before_start=self.check_cancelled)
                 self.report("Connected. Existing motor settings are unchanged.",
                             positions=self.platform.position())
@@ -68,6 +69,10 @@ class MotionWorker(QObject):
                 self.report("Test settings applied in RAM: 16 microsteps, run 48, hold 16; encoder scaled.")
             elif action == "move":
                 self.start_move(data)
+            elif action == "set_home":
+                self.set_home(data["axis"])
+            elif action == "go_home":
+                self.go_home(data)
             else:
                 raise ValueError("Unknown worker request")
         except Exception as exc:
@@ -84,6 +89,40 @@ class MotionWorker(QObject):
     def check_cancelled(self) -> None:
         if self.cancelled.is_set():
             raise RuntimeError("Operation cancelled by Stop.")
+
+    # Set the current measured position to zero without moving or changing AP1/AP0.
+    def set_home(self, name: str) -> None:
+        self.require_idle()
+        if name not in self.platform.axes:
+            raise ValueError("Requested axis is not configured.")
+        motor: int = self.platform.axes[name]
+        self.check_cancelled()
+        self.controller.set(209, 0, motor)
+        self.report(f"Home set for {name.upper()}: encoder zero; step counter unchanged.",
+                    positions=self.platform.position(), encoders=self.platform.encoder_position())
+
+    # Convert scaled encoder displacement into one relative move toward encoder zero.
+    def go_home(self, data: WorkerRequest) -> None:
+        self.require_idle()
+        name: str = data["axis"]
+        if name not in self.platform.axes:
+            raise ValueError("Requested axis is not configured.")
+        motor: int = self.platform.axes[name]
+        resolution: int = self.controller.get(140, motor)
+        mode: int = self.controller.get(201, motor)
+        prescaler: int = self.controller.get(210, motor)
+        # This project uses 200 full steps/rev and 40000 encoder counts/rev.
+        # With decimal scaling, AP210 must be 50 * 2**AP140 for microstep units.
+        if not 0 <= resolution <= 8 or mode not in (32, 33) or prescaler != 50 * (1 << resolution):
+            raise ValueError("Go home requires encoder scaling in microsteps. Apply tested motor settings first.")
+        encoder: int = self.controller.encoder_position(motor)
+        if abs(encoder) > 2**31 - 1:
+            raise ValueError("Encoder displacement exceeds the signed movement range.")
+        request: WorkerRequest = {"rows": {name: {"distance": -encoder, "absolute": False}},
+                                  "single": True, "speed": data["speed"],
+                                  "acceleration": data["acceleration"], "timeout": data["timeout"]}
+        # One positioning command only: do not automatically chase residual encoder error.
+        self.start_move(request)
 
     # Resolve mixed absolute/relative rows once and start only the requested outputs.
     def start_move(self, data: WorkerRequest) -> None:

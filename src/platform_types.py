@@ -25,11 +25,12 @@ class BoardChoice(BoardInfo):
 
 
 class PlatformConfig(TypedDict):
-    """Local settings file, containing only device identity and axis assignments."""
+    """Local settings: USB identity, TMCL destination ID and axis assignments."""
 
     version: int
     board: BoardInfo
     axes: AxisMapping
+    address: int
 
 
 class AxisInput(TypedDict):
@@ -54,14 +55,17 @@ class MotionRow(TypedDict):
 
 
 class WorkerRequest(TypedDict, total=False):
-    """Action-specific data: Connect uses board/axes; Move uses rows and limits.
+    """Action-specific data: Connect uses board/axes/address; Move uses rows/limits.
 
-    Stop, Disconnect and Configure carry an empty record. The action string is
-    sent separately through the existing Qt signal.
+    Home actions use axis, with Go home also supplying motion limits. Stop,
+    Disconnect and Configure carry an empty record. The action string is sent
+    separately through the existing Qt signal.
     """
 
     board: BoardInfo
     axes: AxisMapping
+    address: int
+    axis: str
     rows: dict[str, MotionRow]
     single: bool
     speed: int

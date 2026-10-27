@@ -81,9 +81,10 @@ def resolve_board(saved: BoardInfo, boards: Sequence[BoardInfo]) -> int:
 
 
 # Write validated settings, replacing the old file only after writing succeeds.
-def save_config(path: str | Path, board: BoardInfo, axes: Mapping[str, int]) -> None:
+def save_config(path: str | Path, board: BoardInfo, axes: Mapping[str, int], address: int = 1) -> None:
     """Write validated settings, replacing the old file only after writing succeeds."""
-    data: PlatformConfig = {"version": 1, "board": cast(BoardInfo, dict(board)), "axes": validate_mapping(axes)}
+    data: PlatformConfig = {"version": 1, "board": cast(BoardInfo, dict(board)),
+                            "axes": validate_mapping(axes), "address": validate_address(address)}
     target_path: Path = Path(path)
     temporary: Path = target_path.with_suffix(target_path.suffix + ".tmp")
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -97,4 +98,13 @@ def load_config(path: str | Path) -> PlatformConfig:
     if data.get("version") != 1 or not isinstance(data.get("board"), dict):
         raise ValueError("Unknown configuration format")
     validate_mapping(data["axes"])
+    # Older settings files predate the ID selector and used the fixed address 1.
+    data["address"] = validate_address(data.get("address", 1))
     return data
+
+
+# Validate a TMCL destination ID without changing the address stored on the board.
+def validate_address(address: int) -> int:
+    if type(address) is not int or not 1 <= address <= 255:
+        raise ValueError("Module address must be an integer in 1..255")
+    return address

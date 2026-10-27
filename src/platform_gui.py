@@ -18,13 +18,13 @@ if __package__:
                                  MotionRow, MotionState, PlatformConfig, WorkerRequest)
     from .motion_worker import MotionWorker
     from .platform_config import (discover_boards, load_config, resolve_board,
-                                  save_config, select_motor)
+                                  save_config, select_motor, validate_address)
 else:
     from platform_types import (AxisInput, AxisRow, BoardChoice, BoardInfo,
                                 MotionRow, MotionState, PlatformConfig, WorkerRequest)
     from motion_worker import MotionWorker
     from platform_config import (discover_boards, load_config, resolve_board,
-                                 save_config, select_motor)
+                                 save_config, select_motor, validate_address)
 
 
 class Setup(QObject):
@@ -50,6 +50,7 @@ class Setup(QObject):
         self.path: Path = Path(config_path or Path(__file__).resolve().parent.parent / "platform_settings.json")
         self._boards: list[BoardInfo] = []
         self._selected: int = -1
+        self._address: int = 1
         self._axes: dict[str, int] = {"x": 0, "y": 1}
         self._message: str = "Select a board and assign the motor outputs."
         self._saved_board: BoardInfo | None = None
@@ -58,6 +59,7 @@ class Setup(QObject):
                 data: PlatformConfig = load_config(self.path)
                 self._axes = data["axes"]
                 self._saved_board = data["board"]
+                self._address = data["address"]
                 self._message = "Configuration loaded. Check the selected board."
             except Exception as exc:
                 self._message = f"Could not load settings: {exc}"
@@ -172,7 +174,7 @@ class Setup(QObject):
             index: int = resolve_board(selected, live)
             if index < 0 or live[index]["port"] != selected["port"]:
                 raise ValueError("Board disconnected or port changed. Refresh the list.")
-            save_config(self.path, live[index], self._axes)
+            save_config(self.path, live[index], self._axes, address=self._address)
             self._saved_board: BoardInfo | None = live[index]
             self._message = f"Saved: {self.path.name}"
         except Exception as exc:
@@ -184,6 +186,23 @@ class Setup(QObject):
     @Property(bool, notify=motionChanged)
     def connected(self) -> bool:
         return self._connected
+
+    # Expose the selected TMCL destination ID separately from the USB/COM identity.
+    @Property(int, notify=changed)
+    def boardAddress(self) -> int:
+        return self._address
+
+    # Select an ID while disconnected; this never reprograms the board's stored address.
+    @Slot(int)
+    def setBoardAddress(self, address: int) -> None:
+        if self._connected or self._busy:
+            return
+        try:
+            self._address = validate_address(address)
+            self._message = f"Module address selected: {self._address}. Connect to use this address."
+        except ValueError as exc:
+            self._message = str(exc)
+        self.changed.emit()
 
     # Lock competing operations while a request or motion is in progress.
     @Property(bool, notify=motionChanged)
@@ -240,7 +259,7 @@ class Setup(QObject):
         elif self._selected >= 0:
             self._ensure_worker()
             self._submit("connect", {"board": dict(self._boards[self._selected]),
-                                     "axes": dict(self._axes)})
+                                     "axes": dict(self._axes), "address": self._address})
 
     # Explicitly apply the previously tested motor/encoder settings without moving.
     @Slot()
@@ -281,6 +300,25 @@ class Setup(QObject):
         except ValueError as exc:
             self._message: str = str(exc)
             self.motionChanged.emit()
+
+    # Zero only the selected encoder counter at rest, leaving step coordinates unchanged.
+    @Slot(str)
+    def setHome(self, name: str) -> None:
+        key: str = name.lower()
+        if self._connected and not self._busy and key in self._axes:
+            self._submit("set_home", {"axis": key})
+
+    # Request a one-shot return to encoder zero, independent of the row's text or mode.
+    @Slot(str, int, int, int)
+    def goHome(self, name: str, speed: int, acceleration: int, timeout: int) -> None:
+        key: str = name.lower()
+        if self._connected and not self._busy and key in self._axes:
+            if not 1 <= speed <= 2047 or not 1 <= acceleration <= 2047 or timeout <= 0:
+                self._message = "Invalid speed, acceleration or timeout."
+                self.motionChanged.emit()
+                return
+            self._submit("go_home", {"axis": key, "speed": speed,
+                                     "acceleration": acceleration, "timeout": timeout})
 
     # Request cancellation immediately, then let the serial worker stop every mapped axis.
     @Slot()

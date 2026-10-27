@@ -20,7 +20,14 @@ are loaded on the next launch. Check assignments after changing motor cables.
 Startup and saving settings do not open COM ports or move motors. Select the
 board and output mapping before pressing **Connect**. Mapping and board selection
 are locked while connected; disconnect before changing them. Close TMCL-IDE and
-stop standalone TMCL applications before connecting. The board address is 1.
+stop standalone TMCL applications before connecting. Select **Module address (TMCL)**
+before connecting (1..255, default 1). This selects the destination address used
+in commands; it does not reprogram the board's stored address. The selected ID is
+saved with the configuration. Older settings files use ID 1 automatically.
+
+The LED beside **Connect** is red while disconnected and green after a successful
+connection. Disconnecting or a detected communication failure turns it red.
+It reflects session state; unplugging an idle board is detected on subsequent I/O.
 
 ## Motion controls
 
@@ -42,6 +49,34 @@ microsteps/s. Defaults are 200 and 100. Both values remain changed in RAM after
 motion. The timeout defaults to 20 seconds and can be adjusted before a move.
 The single-axis CLI's one-revolution bench limit does not apply to GUI moves;
 the GUI validates signed 32-bit target and distance ranges, not mechanical travel.
+
+## Encoder home
+
+Each active axis has **Set home** and **Go home** buttons, enabled only while
+connected and idle. They operate only on that axis and ignore its Dist field and
+Absolute checkbox.
+
+**Set home** writes zero to AP209, the selected encoder counter. It issues no
+movement and leaves the commanded position counter and its origin unchanged.
+The GUI displays the updated step and encoder readings afterwards.
+
+**Go home** reads the selected encoder displacement and requests one relative
+move by its negative. For example, with step counter 1000 and encoder -200, the
+commanded target is 1200, corresponding to encoder zero. It does not assume that
+the controller's existing zero is the same physical reference as encoder zero.
+Speed, acceleration and timeout come from the common motion controls.
+
+Before calculating the return, the worker verifies decimal encoder scaling in
+microstep units for this project's 200-step motor and 40000-count encoder:
+AP201 must be 32 or 33 and AP210 must equal `50 * 2**AP140`. Encoder direction
+must already match the commanded direction. Unsupported settings are reported
+before any home movement starts. The explicit **Apply tested motor settings**
+button applies the previously tested configuration if appropriate.
+
+This is a one-shot return to an incremental encoder reference, not a limit-switch
+homing procedure or continuous encoder correction. Residual encoder error is
+displayed without automatically retrying. Encoder zero is not saved to EEPROM
+or guaranteed to survive a power cycle.
 
 **Connect** preserves existing motor settings. If needed, explicitly press
 **Apply tested motor settings** while idle. This applies the previously tested

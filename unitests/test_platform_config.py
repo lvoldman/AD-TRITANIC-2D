@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 from src.platform_types import BoardInfo
+import json
 
 from src.platform_config import (discover_boards, load_config, resolve_board,
                              save_config, select_motor, validate_mapping)
@@ -50,8 +51,14 @@ class ConfigurationTests(unittest.TestCase):
     def test_json_roundtrip(self) -> None:
         path: Path = Path(__file__).with_name(f".test-settings-{uuid.uuid4().hex}.json")
         try:
-            save_config(path, board(), {"x": 2, "y": 0})
+            save_config(path, board(), {"x": 2, "y": 0}, address=6)
             self.assertEqual(load_config(path)["axes"], {"x": 2, "y": 0})
+            self.assertEqual(load_config(path)["address"], 6)
+            # Files saved before the ID selector must keep using the former default.
+            path.write_text(json.dumps({"version": 1, "board": board(), "axes": {"x": 0, "y": 1}}), encoding="utf-8")
+            self.assertEqual(load_config(path)["address"], 1)
+            with self.assertRaises(ValueError):
+                save_config(path, board(), {"x": 0, "y": 1}, address=0)
         finally:
             path.unlink(missing_ok=True)
             path.with_suffix(".json.tmp").unlink(missing_ok=True)

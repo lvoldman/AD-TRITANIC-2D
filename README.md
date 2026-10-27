@@ -30,6 +30,9 @@ From the project root, using the installed local environment:
 The GUI selects a board, assigns motor outputs and starts single-axis or
 interpolated platform moves. Startup does not connect or move anything.
 **Connect** opens a serial session; **Move** buttons operate physical hardware.
+Select the TMCL module address before connecting; the adjacent LED shows session state.
+**Set home** zeroes a selected encoder at rest; **Go home** moves that axis back
+to encoder zero while retaining the separate step-counter origin.
 See [GUI guide](docs/GUI_README.md) for units, setup and device identification.
 
 ## Offline tests

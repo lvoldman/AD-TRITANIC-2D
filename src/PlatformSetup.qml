@@ -58,9 +58,31 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 Button { text: "Refresh"; enabled: !setup.connected && !setup.busy; onClicked: setup.refresh() }
                                 Button {
+                                    objectName: "connectButton"
                                     text: setup.connected ? "Disconnect" : "Connect"
                                     enabled: setup.selected >= 0 && !setup.busy
                                     onClicked: setup.toggleConnection()
+                                }
+                                Rectangle {
+                                    objectName: "connectionLed"
+                                    Layout.preferredWidth: 12; Layout.preferredHeight: 12
+                                    radius: 6
+                                    color: setup.connected ? "#40d58b" : "#ed6262"
+                                    border.color: setup.connected ? "#8ae9b6" : "#ff9a9a"
+                                    Accessible.name: setup.connected ? "Connected" : "Disconnected"
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label { text: "Module address (TMCL)" }
+                                SpinBox {
+                                    objectName: "boardAddress"
+                                    from: 1; to: 255; value: setup.boardAddress
+                                    editable: true
+                                    enabled: !setup.connected && !setup.busy
+                                    onValueModified: setup.setBoardAddress(value)
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: "TMCL destination address, 1–255. Must match the controller’s configured address."
                                 }
                             }
                             Label { text: setup.boardDetails; color: "#a6b7c8"; Layout.fillWidth: true; wrapMode: Text.WordWrap }
@@ -124,10 +146,12 @@ ApplicationWindow {
                         }
                         Repeater {
                             model: setup.axisRows
-                            delegate: RowLayout {
+                            delegate: ColumnLayout {
                                 id: motionRow
                                 required property var modelData
                                 Layout.fillWidth: true; spacing: 8
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
                                 Label { text: "Axis " + modelData.name; font.bold: true; Layout.preferredWidth: 45 }
                                 Label { text: "Dist:" }
                                 TextField {
@@ -155,7 +179,31 @@ ApplicationWindow {
                                         setup.move(modelData.name, speed.value, acceleration.value, timeout.value)
                                     }
                                 }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
+                                    Button {
+                                        objectName: "setHome" + modelData.name
+                                        text: "Set home " + modelData.name
+                                        enabled: setup.connected && !setup.busy
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: "Set the current encoder reading to zero without moving."
+                                        onClicked: setup.setHome(modelData.name)
+                                    }
+                                    Button {
+                                        objectName: "goHome" + modelData.name
+                                        text: "Go home " + modelData.name
+                                        enabled: setup.connected && !setup.busy
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: "Move this motor back to encoder zero."
+                                        onClicked: setup.goHome(modelData.name, speed.value, acceleration.value, timeout.value)
+                                    }
+                                }
                             }
+                        }
+                        Label {
+                            text: "Home refers to encoder zero. Set home keeps the step-counter origin unchanged."
+                            color: "#a6b7c8"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.WordWrap
                         }
                         GridLayout {
                             Layout.fillWidth: true; columns: 3; columnSpacing: 12; rowSpacing: 4
